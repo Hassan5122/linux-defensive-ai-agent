@@ -1,0 +1,38 @@
+#!/usr/bin/env python3
+
+import time
+import re
+import requests
+from sklearn.ensemble import IsolationForest
+import config
+
+LOG_FILE = "/var/log/auth.log"   # change to /var/log/secure if needed
+FAIL_PATTERN = re.compile(r"Failed password")
+fail_events = []
+
+def send_telegram_alert(message):
+    url = f"https://api.telegram.org/bot{config.BOT_TOKEN}/sendMessage"
+    data = {
+        "chat_id": config.CHAT_ID,
+        "text": message
+    }
+    requests.post(url, data=data)
+
+def read_auth_log():
+    with open(LOG_FILE, "r") as f:
+        lines = f.readlines()[-200:]
+        for line in lines:
+            if FAIL_PATTERN.search(line):
+                fail_events.append(1)
+
+while True:
+    read_auth_log()
+    if len(fail_events) >= 10:
+        model = IsolationForest(contamination=0.1)
+        preds = model.fit_predict([[x] for x in fail_events])
+        if -1 in preds:
+            alert = "🚨 AI ALERT: Possible SSH brute-force detected"
+            print(alert)
+            send_telegram_alert(alert)
+            fail_events.clear()
+    time.sleep(30)
